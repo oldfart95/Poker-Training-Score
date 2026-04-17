@@ -13,6 +13,71 @@ describe("session parser and integrity pipeline", () => {
     expect(parsed.integrity.invalidHands).toBe(0);
   });
 
+  it("accepts the native Pocket Pixel export schema", () => {
+    const fixture: RawSession = {
+      formatVersion: "1.0.0",
+      schemaVersion: "1.0.0",
+      app: "Pocket Pixel Poker",
+      session: {
+        id: "ppp-session",
+        startedAt: "2026-04-17T02:35:43.573Z",
+        mode: "full-ring",
+        roomPolicy: "exploit",
+        heroSeat: 0,
+      },
+      players: [
+        { seat: 0, name: "Hero", archetype: "Hero", isHero: true },
+        { seat: 1, name: "Nit", archetype: "Nit", isHero: false },
+        { seat: 2, name: "TAG", archetype: "TAG", isHero: false },
+      ],
+      hands: [
+        {
+          handNumber: 1,
+          handId: "ppp-hand-1",
+          heroSeat: 0,
+          buttonSeat: 0,
+          activePlayersAtStart: [
+            { seat: 0, name: "Hero", position: "BTN", isHero: true, stack: 100 },
+            { seat: 1, name: "Nit", position: "SB", isHero: false, stack: 100 },
+            { seat: 2, name: "TAG", position: "BB", isHero: false, stack: 100 },
+          ],
+          startingStacks: { "0": 100, "1": 100, "2": 100 },
+          heroHoleCards: ["As", "Kd"],
+          board: { flop: ["Ah", "7d", "2c"], turn: "9s", river: "3h" },
+          actions: [
+            { actorSeat: 1, street: "preflop", action: "post_blind", amount: 0.5 },
+            { actorSeat: 2, street: "preflop", action: "post_blind", amount: 1 },
+            { actorSeat: 0, street: "preflop", action: "raise", amount: 3, toAmount: 3, isHero: true },
+            { actorSeat: 1, street: "preflop", action: "fold", amount: 0 },
+            { actorSeat: 2, street: "preflop", action: "call", amount: 2 },
+            { actorSeat: 2, street: "flop", action: "check", amount: 0 },
+            { actorSeat: 0, street: "flop", action: "check", amount: 0, isHero: true },
+            { actorSeat: 2, street: "turn", action: "check", amount: 0 },
+            { actorSeat: 0, street: "turn", action: "check", amount: 0, isHero: true },
+            { actorSeat: 2, street: "river", action: "check", amount: 0 },
+            { actorSeat: 0, street: "river", action: "check", amount: 0, isHero: true },
+          ],
+          result: {
+            showdown: true,
+            winnerSeats: [0],
+            winners: [{ seat: 0, name: "Hero", amountWon: 6.5 }],
+            heroWon: true,
+          },
+        },
+      ],
+      summary: { hands: 1, netBb: 2 },
+    };
+
+    const parsed = parseSession(fixture);
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.session.heroSeatId).toBe("seat-0");
+    expect(parsed.session.hands[0]?.buttonSeatId).toBe("seat-0");
+    expect(parsed.session.hands[0]?.actions[0]?.actorId).toBe("seat-1");
+    expect(parsed.session.hands[0]?.board).toEqual(["Ah", "7d", "2c", "9s", "3h"]);
+    expect(parsed.integrity.validHands).toBe(1);
+    expect(parsed.integrity.invalidHands).toBe(0);
+  });
+
   it("flags mixed valid and invalid hands before scoring", () => {
     const parsed = parseSession(mixedIntegrityFixture);
     expect(parsed.integrity.validHands).toBe(1);

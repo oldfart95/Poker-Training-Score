@@ -56,21 +56,39 @@ export interface RawSession {
   heroId?: string;
   stakes?: string;
   schemaVersion?: string | number;
+  session?: {
+    id?: string;
+    startedAt?: string;
+    endedAt?: string | null;
+    mode?: string;
+    roomPolicy?: string;
+    heroSeat?: number;
+    [key: string]: unknown;
+  };
+  players?: RawSeat[];
   hands?: RawHand[];
+  summary?: Record<string, unknown>;
   summaryStats?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
 export interface RawHand {
   id?: string;
+  handId?: string;
   handNumber?: number;
   buttonSeatId?: string;
+  buttonSeat?: number;
+  heroSeatId?: string;
+  heroSeat?: number;
   board?: string[];
+  activePlayersAtStart?: RawSeat[];
+  startingStacks?: Record<string, number>;
   holeCards?: string[];
   heroHoleCards?: string[];
   seats?: RawSeat[];
   actions?: RawAction[];
   results?: Record<string, unknown>;
+  result?: Record<string, unknown>;
   stacks?: Record<string, number>;
   summary?: Record<string, unknown>;
   [key: string]: unknown;
@@ -79,6 +97,7 @@ export interface RawHand {
 export interface RawSeat {
   id?: string;
   playerId?: string;
+  seat?: number;
   name?: string;
   label?: string;
   position?: string;
@@ -95,7 +114,9 @@ export interface RawAction {
   actorId?: string;
   seatId?: string;
   playerId?: string;
+  actorSeat?: number;
   street?: string;
+  action?: string;
   type?: string;
   amount?: number;
   toAmount?: number;

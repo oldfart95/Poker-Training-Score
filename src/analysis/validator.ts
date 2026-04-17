@@ -1,7 +1,7 @@
 import type { Action, Hand, HandImportReport, HandValidity, IntegrityIssue, Session, SessionIntegrityReport, Street } from "./types";
 
 const STREET_ORDER: Street[] = ["preflop", "flop", "turn", "river", "showdown"];
-const SUPPORTED_SCHEMA_VERSIONS = new Set(["1", "1.0", "2", "2.0"]);
+const SUPPORTED_SCHEMA_VERSIONS = new Set(["1", "1.0", "1.0.0", "2", "2.0", "2.0.0"]);
 
 interface SeatState {
   stack: number | null;
