@@ -80,7 +80,13 @@ export interface RawHand {
   buttonSeat?: number;
   heroSeatId?: string;
   heroSeat?: number;
-  board?: string[];
+  board?:
+    | string[]
+    | {
+        flop?: string[];
+        turn?: string | null;
+        river?: string | null;
+      };
   activePlayersAtStart?: RawSeat[];
   startingStacks?: Record<string, number>;
   holeCards?: string[];
