@@ -1,13 +1,10 @@
 import { useMemo, useState } from "react";
 import { allFixtures, parseSession, reportToJson, reportToMarkdown, reviewSession } from "./analysis";
-import { CATEGORY_LABELS } from "./analysis/constants";
-import type { AnalysisMode, RawSession, SessionReport } from "./analysis";
+import type { AnalysisMode, RawSession } from "./analysis";
 import { HandReviewList } from "./ui/HandReviewList";
 import { ImportPanel } from "./ui/ImportPanel";
 import { ModeToggle } from "./ui/ModeToggle";
-import { PatternPanel } from "./ui/PatternPanel";
 import { ScoreCard } from "./ui/ScoreCard";
-import { TopHandsPanel } from "./ui/TopHandsPanel";
 
 function downloadText(filename: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
@@ -19,18 +16,22 @@ function downloadText(filename: string, content: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
-function csvSummary(report: SessionReport): string {
-  const rows = [["handNumber", "score", "grade", "positives", "warnings"]];
+function csvSummary(report: ReturnType<typeof reviewSession>): string {
+  const rows = [["handNumber", "validity", "score", "badge", "issues"]];
   for (const hand of report.handReviews) {
     rows.push([
       String(hand.handNumber),
-      String(hand.score),
-      hand.grade,
-      hand.positiveTags.join("|"),
-      [...hand.warningTags, ...hand.severeLeakTags].join("|"),
+      hand.validity,
+      String(hand.score ?? ""),
+      hand.badge,
+      hand.importReport.issues.map((issue) => issue.code).join("|"),
     ]);
   }
   return rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(",")).join("\n");
+}
+
+function decisionLabel(decision: NonNullable<ReturnType<typeof reviewSession>["overview"]["topReviewedDecisions"][number]>): string {
+  return `${decision.heroAction}: ${decision.summary}`;
 }
 
 export default function App() {
@@ -40,12 +41,12 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   const parsed = useMemo(() => parseSession(rawSession), [rawSession]);
-  const report = useMemo(() => reviewSession(parsed.session, mode), [mode, parsed.session]);
+  const report = useMemo(() => reviewSession(parsed, mode), [mode, parsed]);
 
   function handleImportText(text: string, source: string) {
     try {
       const parsedJson = JSON.parse(text) as RawSession;
-      if (!parsedJson || typeof parsedJson !== "object") throw new Error("Root JSON must be an object.");
+      if (!parsedJson || typeof parsedJson !== "object" || Array.isArray(parsedJson)) throw new Error("Root JSON must be an object.");
       setRawSession(parsedJson);
       setSourceLabel(source);
       setError(null);
@@ -67,9 +68,9 @@ export default function App() {
         <header className="hero">
           <div>
             <p className="eyebrow">Pocket Pixel Poker</p>
-            <h1>Rules-Based Session Analyzer</h1>
+            <h1>Integrity-First Session Analyzer</h1>
             <p className="muted lead">
-              Deterministic, explainable review for exported emulator sessions. Weighted rules, archetype-aware scoring, and philosophy-specific feedback with zero AI dependency.
+              Strictly validates exported hand histories before any strategic review. Invalid hands are isolated as engine/export issues, not graded as poker decisions.
             </p>
           </div>
           <ModeToggle value={mode} onChange={setMode} />
@@ -99,54 +100,137 @@ export default function App() {
           </div>
 
           <div className="overview-grid">
-            <ScoreCard label="Overall Score" score={report.overallScore} detail={report.overallGrade} />
-            <ScoreCard label="Philosophy" score={report.overview.totalHands} detail={mode.replaceAll("_", " ")} />
-            <ScoreCard label="Biggest Strength" score={report.overview.biggestStrength?.count ?? 0} detail={report.overview.biggestStrength?.tag ?? "None"} />
-            <ScoreCard label="Biggest Leak" score={report.overview.biggestLeak?.count ?? 0} detail={report.overview.biggestLeak?.tag ?? "None"} />
+            <ScoreCard label="Session Integrity" score={report.overview.validHands} detail={`${report.overview.validHands}/${report.overview.totalHands} valid`} />
+            <ScoreCard label="Strategic Score" score={report.overallScore ?? 0} detail={report.overallGrade ?? "Withheld"} muted={report.overallScore === null} />
+            <ScoreCard label="Confidence" score={report.overview.invalidHands} detail={report.confidenceLabel} muted={report.confidence === "low"} />
+            <ScoreCard
+              label="Main Engine Fault"
+              score={report.engineIssues.length}
+              detail={report.overview.biggestEngineFaultCategory ?? "None"}
+              muted={report.engineIssues.length > 0}
+            />
           </div>
 
           <p className="summary-copy">{report.quickSummary}</p>
-          {parsed.warnings.length ? (
-            <div className="warning-box">
-              {parsed.warnings.map((warning) => (
-                <p key={warning}>{warning}</p>
-              ))}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="score-grid">
-          {Object.entries(report.categoryScores).map(([key, score]) => (
-            <ScoreCard key={key} label={CATEGORY_LABELS[key as keyof typeof CATEGORY_LABELS]} score={score} />
-          ))}
+          <div className="warning-box">
+            <p>{report.sessionIntegrity.confidenceReason}</p>
+            <p>{report.sessionIntegrity.mainFailureSource}</p>
+            {parsed.warnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+          </div>
         </section>
 
         <section className="double-grid">
-          <PatternPanel title="Recurring Leaks" items={report.leaks} />
-          <PatternPanel title="Recurring Strengths" items={report.strengths} positive />
-        </section>
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Session Integrity</h3>
+            </div>
+            <div className="score-grid">
+              <ScoreCard label="Total Hands" score={report.overview.totalHands} />
+              <ScoreCard label="Valid Hands" score={report.overview.validHands} />
+              <ScoreCard label="Invalid Hands" score={report.overview.invalidHands} muted={report.overview.invalidHands > 0} />
+              <ScoreCard label="Unscored Hands" score={report.overview.unscoredHands} muted={report.overview.unscoredHands > 0} />
+            </div>
+          </section>
 
-        <section className="triple-grid">
-          <TopHandsPanel title="Best Played Hands" hands={report.topHands.best} />
-          <TopHandsPanel title="Worst Played Hands" hands={report.topHands.worst} />
-          <TopHandsPanel title="Weirdest Hands" hands={report.topHands.weirdest} />
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
-            <h3>Recommendations</h3>
-          </div>
-          <div className="recommendation-list">
-            {report.recommendations.map((item) => (
-              <article key={item.key} className="recommendation-item">
-                <div className="pattern-head">
-                  <strong>{item.priority.toUpperCase()}</strong>
-                  <span className="muted">{item.sourceTags.join(", ")}</span>
-                </div>
-                <p>{item.text}</p>
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Strategic Review</h3>
+            </div>
+            <div className="recommendation-list">
+              <article className="recommendation-item">
+                <strong>Biggest strategic leak</strong>
+                <p>{report.overview.biggestStrategicLeakCategory?.replaceAll("_", " ") ?? "None identified from valid hands."}</p>
               </article>
-            ))}
-          </div>
+              <article className="recommendation-item">
+                <strong>Scored chip result</strong>
+                <p>{report.overview.strategicallyScoredChipResult}</p>
+              </article>
+              <article className="recommendation-item">
+                <strong>Aggregate chip result</strong>
+                <p>{report.overview.aggregateChipResult}</p>
+              </article>
+            </div>
+          </section>
+        </section>
+
+        <section className="double-grid">
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Engine / Export Issues</h3>
+            </div>
+            <div className="recommendation-list">
+              {report.engineIssues.length ? (
+                report.engineIssues.map((issue) => (
+                  <article key={issue.handId} className="recommendation-item">
+                    <div className="pattern-head">
+                      <strong>Hand {issue.handNumber}</strong>
+                      <span className="muted">{issue.status}</span>
+                    </div>
+                    <p>{issue.issues.map((item) => item.message).join(" ")}</p>
+                  </article>
+                ))
+              ) : (
+                <p className="muted">No engine/export faults were detected.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Recommendations</h3>
+            </div>
+            <div className="recommendation-list">
+              {report.recommendations.map((item) => (
+                <article key={item.key} className="recommendation-item">
+                  <div className="pattern-head">
+                    <strong>{item.priority.toUpperCase()}</strong>
+                    <span className="muted">{item.sourceTags.join(", ")}</span>
+                  </div>
+                  <p>{item.text}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        </section>
+
+        <section className="double-grid">
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Top Reviewed Decisions</h3>
+            </div>
+            <div className="recommendation-list">
+              {report.overview.topReviewedDecisions.length ? (
+                report.overview.topReviewedDecisions.map((decision) => (
+                  <article key={`${decision.actionIndex}-${decision.heroAction}`} className="recommendation-item">
+                    <strong>{decision.verdict.toUpperCase()}</strong>
+                    <p>{decisionLabel(decision)}</p>
+                  </article>
+                ))
+              ) : (
+                <p className="muted">No confident positive decisions were available.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Top Caution Spots</h3>
+            </div>
+            <div className="recommendation-list">
+              {report.overview.topCautionSpots.length ? (
+                report.overview.topCautionSpots.map((decision) => (
+                  <article key={`${decision.actionIndex}-${decision.heroAction}`} className="recommendation-item">
+                    <strong>{decision.verdict.toUpperCase()}</strong>
+                    <p>{decisionLabel(decision)}</p>
+                  </article>
+                ))
+              ) : (
+                <p className="muted">No caution spots were scored from valid hands.</p>
+              )}
+            </div>
+          </section>
         </section>
 
         <HandReviewList hands={report.handReviews} />

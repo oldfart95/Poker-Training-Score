@@ -1,6 +1,20 @@
 import { ARCHETYPES } from "./constants";
 import { normalizeNumber, normalizeString } from "./utils";
-import type { Action, ActionType, Archetype, Hand, RawAction, RawHand, RawSeat, RawSession, Seat, Session, Street } from "./types";
+import { validateSession } from "./validator";
+import type {
+  Action,
+  ActionType,
+  Archetype,
+  Hand,
+  ParseResult,
+  RawAction,
+  RawHand,
+  RawSeat,
+  RawSession,
+  Seat,
+  Session,
+  Street,
+} from "./types";
 
 function normalizeStreet(input: string | undefined): Street {
   const value = (input ?? "").toLowerCase();
@@ -8,7 +22,7 @@ function normalizeStreet(input: string | undefined): Street {
   return "preflop";
 }
 
-function normalizeActionType(input: string | undefined): ActionType {
+function normalizeActionType(input: string | undefined): { type: ActionType; unknown: string | null } {
   const value = (input ?? "").toLowerCase();
   switch (value) {
     case "fold":
@@ -19,9 +33,9 @@ function normalizeActionType(input: string | undefined): ActionType {
     case "all_in":
     case "post_blind":
     case "ante":
-      return value;
+      return { type: value, unknown: null };
     default:
-      return "call";
+      return { type: "call", unknown: input ?? null };
   }
 }
 
@@ -66,20 +80,24 @@ function parseSeat(rawSeat: RawSeat, sessionHeroSeatId: string | null, index: nu
     archetype: normalizeArchetype(typeof rawSeat.archetype === "string" ? rawSeat.archetype : undefined),
     stack: typeof rawSeat.stack === "number" ? rawSeat.stack : null,
     isHero,
+    busted: Boolean(rawSeat.busted) || (typeof rawSeat.stack === "number" && rawSeat.stack <= 0),
+    inactive: Boolean(rawSeat.inactive),
   };
 }
 
 function parseAction(rawAction: RawAction, heroSeatId: string | null): Action {
   const actorId = normalizeString(rawAction.actorId ?? rawAction.seatId ?? rawAction.playerId, "unknown");
+  const normalizedType = normalizeActionType(rawAction.type);
+  const rawNote = typeof rawAction.note === "string" ? rawAction.note : null;
   return {
     actorId,
     street: normalizeStreet(rawAction.street),
-    type: normalizeActionType(rawAction.type),
+    type: normalizedType.type,
     amount: normalizeNumber(rawAction.amount, 0),
     toAmount: typeof rawAction.toAmount === "number" ? rawAction.toAmount : null,
     pot: typeof rawAction.pot === "number" ? rawAction.pot : null,
     board: Array.isArray(rawAction.board) ? rawAction.board.filter((value): value is string => typeof value === "string") : [],
-    note: typeof rawAction.note === "string" ? rawAction.note : null,
+    note: normalizedType.unknown ? `unknown_action_type:${normalizedType.unknown}${rawNote ? ` | ${rawNote}` : ""}` : rawNote,
     isHero: Boolean(rawAction.isHero) || (heroSeatId !== null && actorId === heroSeatId),
   };
 }
@@ -110,11 +128,6 @@ function parseHand(rawHand: RawHand, sessionHeroSeatId: string | null, fallbackN
   };
 }
 
-export interface ParseResult {
-  session: Session;
-  warnings: string[];
-}
-
 export function parseSession(rawSession: RawSession): ParseResult {
   const warnings: string[] = [];
   const heroSeatId = typeof rawSession.heroSeatId === "string" ? rawSession.heroSeatId : typeof rawSession.heroId === "string" ? rawSession.heroId : null;
@@ -123,19 +136,24 @@ export function parseSession(rawSession: RawSession): ParseResult {
     : [];
 
   if (!hands.length) warnings.push("No hands found in session export.");
-  if (!heroSeatId && !hands.some((hand) => hand.heroSeat)) warnings.push("Hero seat was missing; analyzer used best-effort hero markers.");
+  if (!heroSeatId && !hands.some((hand) => hand.heroSeat)) warnings.push("Hero seat was missing; strategic review may be skipped.");
+  if (rawSession.schemaVersion === undefined) warnings.push("Schema version missing; treated as a legacy export and validated conservatively.");
+
+  const session: Session = {
+    id: normalizeString(rawSession.id ?? rawSession.sessionId, "session-import"),
+    createdAt: typeof rawSession.createdAt === "string" ? rawSession.createdAt : null,
+    roomPolicy: normalizeString(rawSession.roomPolicy, "Pocket Pixel Poker"),
+    sourceMode: typeof rawSession.mode === "string" ? rawSession.mode : typeof rawSession.philosophy === "string" ? rawSession.philosophy : null,
+    heroSeatId,
+    stakes: typeof rawSession.stakes === "string" ? rawSession.stakes : null,
+    schemaVersion: rawSession.schemaVersion === undefined ? null : String(rawSession.schemaVersion),
+    hands,
+    summaryStats: rawSession.summaryStats && typeof rawSession.summaryStats === "object" ? rawSession.summaryStats : {},
+  };
 
   return {
-    session: {
-      id: normalizeString(rawSession.id ?? rawSession.sessionId, "session-import"),
-      createdAt: typeof rawSession.createdAt === "string" ? rawSession.createdAt : null,
-      roomPolicy: normalizeString(rawSession.roomPolicy, "Pocket Pixel Poker"),
-      sourceMode: typeof rawSession.mode === "string" ? rawSession.mode : typeof rawSession.philosophy === "string" ? rawSession.philosophy : null,
-      heroSeatId,
-      stakes: typeof rawSession.stakes === "string" ? rawSession.stakes : null,
-      hands,
-      summaryStats: rawSession.summaryStats && typeof rawSession.summaryStats === "object" ? rawSession.summaryStats : {},
-    },
+    session,
     warnings,
+    integrity: validateSession(session),
   };
 }

@@ -1,44 +1,43 @@
-import type { AnalysisMode, PatternSummary, Recommendation } from "./types";
+import type { ConfidenceLevel, Recommendation } from "./types";
 
-const MODE_PREFIX: Record<AnalysisMode, string> = {
-  sound_fundamentals: "In Sound Fundamentals mode,",
-  adaptive_pressure: "In Adaptive Pressure mode,",
-};
+export function buildRecommendations(leakCategory: string | null, engineFault: string | null, confidence: ConfidenceLevel): Recommendation[] {
+  const recommendations: Recommendation[] = [];
 
-export function buildRecommendations(leaks: PatternSummary[], strengths: PatternSummary[], mode: AnalysisMode): Recommendation[] {
-  const picks: Recommendation[] = leaks.slice(0, 5).map((leak) => ({
-    key: leak.tag,
-    priority: leak.severity === "high" ? "high" : leak.severity === "medium" ? "medium" : "low",
-    text: `${MODE_PREFIX[mode]} ${leak.correction ?? leak.explanation}`,
-    sourceTags: [leak.tag],
-  }));
-
-  if (mode === "adaptive_pressure" && !picks.some((item) => item.key === "pressure_vs_overfolder")) {
-    picks.push({
-      key: "adaptive-pressure-default",
-      priority: "medium",
-      text: "In Adaptive Pressure mode, pressure Nits and weak-tight lines more often when prior action shows capped weakness, but keep sticky profiles on a value-heavy plan.",
-      sourceTags: ["pressure_vs_overfolder"],
+  if (engineFault) {
+    recommendations.push({
+      key: "engine-first",
+      priority: "high",
+      text: `Fix engine/export issue "${engineFault}" before trusting strategic trends from this session.`,
+      sourceTags: [engineFault],
     });
   }
 
-  if (mode === "sound_fundamentals" && !picks.some((item) => item.key === "vpip_pfr_gap")) {
-    picks.push({
-      key: "sound-fundamentals-default",
-      priority: "medium",
-      text: "In Sound Fundamentals mode, cut speculative overcalls that do not win initiative or position cleanly.",
-      sourceTags: ["vpip_pfr_gap"],
+  if (leakCategory) {
+    recommendations.push({
+      key: "strategic-focus",
+      priority: confidence === "low" ? "medium" : "high",
+      text: `Primary strategic review target: ${leakCategory.replaceAll("_", " ")}.`,
+      sourceTags: [leakCategory],
     });
   }
 
-  if (strengths.some((strength) => strength.tag === "value_vs_caller")) {
-    picks.push({
-      key: "keep-value-plan",
+  if (confidence === "low") {
+    recommendations.push({
+      key: "low-confidence",
+      priority: "high",
+      text: "Session grade confidence is low because too many hands were invalid or unsupported for strategic review.",
+      sourceTags: ["low_confidence"],
+    });
+  }
+
+  if (!recommendations.length) {
+    recommendations.push({
+      key: "clean-session",
       priority: "low",
-      text: "Keep leaning into value against calling-heavy profiles; that pattern showed up as a repeat strength.",
-      sourceTags: ["value_vs_caller"],
+      text: "Integrity checks were clean enough that the reviewed decisions are materially trustworthy.",
+      sourceTags: ["clean_integrity"],
     });
   }
 
-  return picks.slice(0, 6);
+  return recommendations.slice(0, 4);
 }

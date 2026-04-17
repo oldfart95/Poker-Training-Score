@@ -39,6 +39,12 @@ export type CategoryKey =
   | "riskControl"
   | "coherence";
 
+export type HandValidity = "valid" | "invalid_schema" | "invalid_sequence" | "invalid_accounting" | "unsupported";
+
+export type ConfidenceLevel = "high" | "medium" | "low";
+
+export type DecisionVerdict = "credit" | "good" | "questionable" | "mistake" | "neutral";
+
 export interface RawSession {
   id?: string;
   sessionId?: string;
@@ -49,6 +55,7 @@ export interface RawSession {
   heroSeatId?: string;
   heroId?: string;
   stakes?: string;
+  schemaVersion?: string | number;
   hands?: RawHand[];
   summaryStats?: Record<string, unknown>;
   [key: string]: unknown;
@@ -79,6 +86,8 @@ export interface RawSeat {
   stack?: number;
   hero?: boolean;
   isHero?: boolean;
+  busted?: boolean;
+  inactive?: boolean;
   [key: string]: unknown;
 }
 
@@ -104,6 +113,7 @@ export interface Session {
   sourceMode: string | null;
   heroSeatId: string | null;
   stakes: string | null;
+  schemaVersion: string | null;
   hands: Hand[];
   summaryStats: Record<string, unknown>;
 }
@@ -130,6 +140,8 @@ export interface Seat {
   archetype: Archetype;
   stack: number | null;
   isHero: boolean;
+  busted: boolean;
+  inactive: boolean;
 }
 
 export interface Action {
@@ -212,7 +224,16 @@ export interface HandContext {
   heroWon: boolean | null;
   dominantVillainArchetype: ArchetypeProfile;
   targetedVillainArchetypes: ArchetypeProfile[];
+  playerCount: number;
+  stackDepthBb: number | null;
+  preflopAggressor: string | null;
+  facingBet: number;
+  potOdds: number | null;
+  spr: number | null;
+  streetState: string;
   lineSummary: string;
+  actionChain: string;
+  resultLabel: string;
   flags: {
     openedPreflop: boolean;
     coldCalledPreflop: boolean;
@@ -226,37 +247,87 @@ export interface HandContext {
   };
 }
 
-export interface ScoreImpact {
+export interface RuleTrigger {
+  id: string;
+  label: string;
   category: CategoryKey;
-  delta: number;
-  tags?: string[];
-  warnings?: string[];
-  severeLeaks?: string[];
-  rationale: string;
+  impact: number;
+  outcome: "credit" | "caution" | "mistake";
+  explanation: string;
+}
+
+export interface DecisionReview {
+  actionIndex: number;
+  street: Street;
+  actionType: ActionType;
+  heroAction: string;
+  potBefore: number;
+  facingBet: number;
+  potOdds: number | null;
+  spr: number | null;
+  verdict: DecisionVerdict;
+  scoreDelta: number;
+  ruleTriggers: RuleTrigger[];
+  summary: string;
+}
+
+export interface IntegrityIssue {
+  code: string;
+  severity: "error" | "warning";
+  category: Exclude<HandValidity, "valid">;
+  message: string;
+  actionIndex?: number;
+  street?: Street;
+  field?: string;
+}
+
+export interface HandImportReport {
+  handId: string;
+  handNumber: number;
+  status: HandValidity;
+  issues: IntegrityIssue[];
+  unsupportedFields: string[];
+  exactBreakActionIndex: number | null;
+  engineBugDetected: boolean;
+  strategicallyScorable: boolean;
+  analysisDisposition: "full" | "partial" | "skipped";
+}
+
+export interface SessionIntegrityReport {
+  schemaVersion: string | null;
+  sessionStatus: HandValidity;
+  totalHands: number;
+  validHands: number;
+  invalidHands: number;
+  unscoredHands: number;
+  confidence: ConfidenceLevel;
+  confidenceReason: string;
+  mainFailureSource: string;
+  biggestEngineFaultCategory: string | null;
+  unsupportedFields: string[];
+  handReports: HandImportReport[];
 }
 
 export interface HandReview {
   handId: string;
   handNumber: number;
-  score: number;
-  grade: string;
-  categoryScores: Record<CategoryKey, number>;
-  positiveTags: string[];
-  warningTags: string[];
-  severeLeakTags: string[];
-  rationales: string[];
+  validity: HandValidity;
+  badge: "Valid" | "Invalid" | "Skipped" | "Low confidence";
+  importReport: HandImportReport;
+  score: number | null;
+  grade: string | null;
+  categoryScores: Record<CategoryKey, number> | null;
+  triggeredRules: RuleTrigger[];
+  decisionReviews: DecisionReview[];
   summary: string;
+  conciseSummary: string;
+  whatWasGood: string[];
+  whatWasQuestionable: string[];
+  highestLeverageMistake: string | null;
+  result: string;
   volatility: number;
-  context: HandContext;
-}
-
-export interface PatternSummary {
-  tag: string;
-  severity: "low" | "medium" | "high";
-  count: number;
-  affectedHands: number[];
-  explanation: string;
-  correction?: string;
+  context: HandContext | null;
+  skippedReason: string | null;
 }
 
 export interface Recommendation {
@@ -269,24 +340,32 @@ export interface Recommendation {
 export interface SessionReport {
   session: Session;
   mode: AnalysisMode;
-  overallScore: number;
-  overallGrade: string;
+  overallScore: number | null;
+  overallGrade: string | null;
+  confidence: ConfidenceLevel;
+  confidenceLabel: string;
   quickSummary: string;
   categoryScores: Record<CategoryKey, number>;
   handReviews: HandReview[];
-  leaks: PatternSummary[];
-  strengths: PatternSummary[];
   recommendations: Recommendation[];
+  sessionIntegrity: SessionIntegrityReport;
+  engineIssues: HandImportReport[];
   overview: {
     totalHands: number;
-    biggestStrength: PatternSummary | null;
-    biggestLeak: PatternSummary | null;
-    topRecurringIssue: PatternSummary | null;
-    topRecurringPositive: PatternSummary | null;
+    validHands: number;
+    invalidHands: number;
+    unscoredHands: number;
+    aggregateChipResult: number;
+    strategicallyScoredChipResult: number;
+    biggestStrategicLeakCategory: string | null;
+    biggestEngineFaultCategory: string | null;
+    topReviewedDecisions: DecisionReview[];
+    topCautionSpots: DecisionReview[];
   };
-  topHands: {
-    best: HandReview[];
-    worst: HandReview[];
-    weirdest: HandReview[];
-  };
+}
+
+export interface ParseResult {
+  session: Session;
+  warnings: string[];
+  integrity: SessionIntegrityReport;
 }

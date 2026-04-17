@@ -212,6 +212,10 @@ p {
   padding: 16px;
 }
 
+.muted-card {
+  border-color: rgba(255, 143, 112, 0.24);
+}
+
 .score-label {
   color: var(--muted);
   font-size: 0.88rem;
@@ -318,6 +322,10 @@ p {
 
 .badge {
   background: rgba(69, 208, 255, 0.15);
+}
+
+.warning-badge {
+  background: rgba(255, 143, 112, 0.18);
 }
 
 .pill.positive {

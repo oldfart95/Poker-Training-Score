@@ -68,6 +68,9 @@ export function ImportPanel({ onImportText, onLoadFixture }: ImportPanelProps) {
         <button type="button" className="chip-button" onClick={() => onLoadFixture("strongExploitFixture")}>
           Strong Exploit
         </button>
+        <button type="button" className="chip-button" onClick={() => onLoadFixture("mixedIntegrityFixture")}>
+          Mixed Integrity
+        </button>
       </div>
     </section>
   );
